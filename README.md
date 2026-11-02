@@ -7,7 +7,7 @@ The interface between [Atelier IDE](https://atelier-ide-org.github.io/docs/) and
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-atelier-plugin-api = { git = "https://github.com/atelier-ide-org/plugin-api", tag = "v0.2.0" }
+atelier-plugin-api = { git = "https://github.com/atelier-ide-org/api", tag = "v0.2.0" }
 ```
 
 ```rust
@@ -33,7 +33,9 @@ atelier_plugin_api::declare_plugin!(Viewer::default);
 
 Rust has no stable ABI, and the plugin shares egui with the IDE: the library must be built by the same compiler, for the same target and profile, from the same versions and features of the crates. The IDE checks it (`ATELIER_RUSTC` and `fingerprint()`) before calling anything in the library, and refuses one built otherwise.
 
-So the plugins shipped with Atelier are built by its own CI, in one `cargo build` with the IDE: they are git submodules of `atelier-ide-org/app` (`plugins/<name>`), and each release of [`atelier-ide-org/releases`](https://github.com/atelier-ide-org/releases/releases) carries the plugins of that version. The IDE and its plugins must depend on **the same tag** of this repository.
+So a plugin is built for one version of the IDE, with what that version shares in the **`kits` branch** of this repository: `vX.Y.Z/` holds its `Cargo.toml`, `Cargo.lock` and `rust-toolchain.toml` (no code), pushed by the release of the IDE. The CI of a plugin makes an empty package of it, puts the plugin in its `plugins/` folder (a member of its workspace) and runs `cargo build --release --workspace --target <target>`, as the IDE was built: the crates they share come out the same. It then publishes `<name>.atelier-plugin` as the release `plugins/<name>/vX.Y.Z` of [`atelier-ide-org/releases`](https://github.com/atelier-ide-org/releases/releases), which Atelier installs from Plugins, Install a plugin from a file. See [plugin-gltf-viewer](https://github.com/atelier-ide-org/plugin-gltf-viewer) and its `.github/workflows/release.yml`.
+
+The IDE and its plugins must depend on **the same tag** of this repository, by the same URL.
 
 ## Dependencies
 
