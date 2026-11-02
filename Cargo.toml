@@ -1,6 +1,6 @@
 [package]
 name = "atelier-plugin-api"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "The interface between Atelier and its native plugins"
@@ -10,5 +10,8 @@ publish = false
 [dependencies]
 # The same eframe as the IDE: a plugin draws with the IDE's egui, so both must be built from
 # the same crates, with the same features (`fingerprint` checks it).
+#
+# Nothing else: the identity of this crate (and so the fingerprint) includes that of its
+# dependencies, and a plugin may enable features of any crate it uses. With eframe alone, a
+# plugin built against a release of the IDE matches the IDE built without it.
 eframe = { version = "0.33", features = ["persistence"] }
-serde_json = "1"

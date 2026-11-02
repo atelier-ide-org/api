@@ -162,21 +162,21 @@ macro_rules! declare_plugin {
     };
 }
 
-/// The translations of a plugin: the `locales/<identifier>.json` files it embeds, each a flat
-/// object of keys and texts. A text missing in a language is the English one, else the key.
+/// The translations of a plugin: for each language, its keys and texts (the plugin reads its
+/// `locales/<identifier>.json` files itself, this crate depends on eframe alone). A text missing
+/// in a language is the English one, else the key.
 pub struct Locales {
     catalogs: HashMap<&'static str, HashMap<String, String>>,
 }
 
 impl Locales {
-    /// `files` pairs an identifier (`en_US`) with the JSON of its file; a file that is not a
-    /// flat object of texts is left out.
-    pub fn new(files: &[(&'static str, &str)]) -> Self {
-        let catalogs = files
-            .iter()
-            .map(|(id, json)| (*id, serde_json::from_str(json).unwrap_or_default()))
-            .collect();
-        Self { catalogs }
+    /// Each language, by its identifier (`en_US`), with its texts by key.
+    pub fn new(
+        catalogs: impl IntoIterator<Item = (&'static str, HashMap<String, String>)>,
+    ) -> Self {
+        Self {
+            catalogs: catalogs.into_iter().collect(),
+        }
     }
 
     pub fn get<'a>(&'a self, language: &str, key: &'a str) -> &'a str {
@@ -207,12 +207,18 @@ mod tests {
 
     #[test]
     fn texts_fall_back_to_english_then_to_the_key() {
-        let locales = Locales::new(&[
+        let texts = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<HashMap<_, _>>()
+        };
+        let locales = Locales::new([
             (
                 "en_US",
-                r#"{ "a": "One", "b": "Two {n}", "q": "Say \"hi\"\n" }"#,
+                texts(&[("a", "One"), ("b", "Two {n}"), ("q", "Say \"hi\"\n")]),
             ),
-            ("fr_FR", r#"{ "a": "Un" }"#),
+            ("fr_FR", texts(&[("a", "Un")])),
         ]);
         assert_eq!(locales.get("fr_FR", "a"), "Un");
         assert_eq!(locales.get("fr_FR", "b"), "Two {n}");
