@@ -1,0 +1,8 @@
+---
+name: {{name}}
+summary: Ce que fait {{name}}, en une phrase.
+---
+
+# {{name}}
+
+Ce que fait le plugin, et comment s'en servir.

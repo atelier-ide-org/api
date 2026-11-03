@@ -9,7 +9,7 @@ A native plugin is a dynamic library (`.dll`, `.so`, `.dylib`) the IDE loads onc
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-atelier-plugin-api = { git = "https://github.com/atelier-ide-org/api", tag = "v0.3.0" }
+atelier-plugin-api = { git = "https://github.com/atelier-ide-org/api", tag = "v0.4.0" }
 ```
 
 ```rust
@@ -41,11 +41,24 @@ impl Plugin for Viewer {
 atelier_plugin_api::export_plugin!(Viewer::default);
 ```
 
-The plugin's `plugin.json` names the library and the version of the interface:
+The plugin's `plugin.json` names the library, the version of the interface and the extensions of the files it handles, whose icons are in its `extensions/` folder (`xyz.svg`, or `a+b.svg` for several):
 
 ```json
-{ "id": "viewer", "name": "Viewer", "version": "1.0.0", "description": "…", "library": "viewer", "abi": 2 }
+{ "id": "viewer", "name": "Viewer", "version": "1.0.0", "description": "…", "library": "viewer", "abi": 2, "extensions": ["xyz"] }
 ```
+
+## atelier-cli
+
+The command line of the plugins, in `cli/`:
+
+```sh
+cargo install --git https://github.com/atelier-ide-org/api atelier-cli
+atelier-cli plugin create "My viewer"        # ./my-viewer: a plugin ready to build, with its CI and release
+atelier-cli plugin compile [<path>] [--debug] [--target <triple>] [--out <folder>]
+atelier-cli plugin merge a.atelier-plugin b.atelier-plugin --out all.atelier-plugin
+```
+
+`compile` builds the plugin and makes the file Atelier installs (Plugins, the + button), `<id>.atelier-plugin`: its `plugin.json` (with the version of `Cargo.toml`), its `extensions/` icons and its library for the system, in `<os>-<arch>/`. The release workflow of a plugin builds it for each system and joins the files.
 
 ## How a plugin draws
 

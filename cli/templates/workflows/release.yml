@@ -1,0 +1,141 @@
+name: Release
+
+# Publishes the plugin in atelier-ide-org/releases as the release `plugins/<id>/vX.Y.Z`, `<id>` being
+# the one of plugin.json and X.Y.Z the version of Cargo.toml: `<id>.atelier-plugin` (the manifest,
+# the icons of its files and the library of each system), its `plugin.json` (what Atelier lists
+# in Plugins › Marketplace) and `<id>-SHA256SUMS`. It is never the "latest" release of the
+# repository: that one is the IDE's.
+#
+# The plugin is built alone, against the plugin interface (atelier-ide-org/api), by
+# `atelier-cli plugin compile`: it loads in every version of Atelier that reads the version of the
+# interface its plugin.json gives (`abi`).
+#
+# On every push to main whose version has no release yet: raising the version releases it.
+# Started by hand, it builds the version of main again and replaces the files of its release.
+#
+# Secret (of the organization): ATELIER_RELEASES writes the releases of atelier-ide-org/releases.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # The command line of the plugins, from this tag of atelier-ide-org/api.
+  ATELIER_CLI: v0.4.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      id: ${{ steps.version.outputs.id }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BY_HAND: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          id="$(jq -r .id plugin.json)"
+          version="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$BY_HAND" != true ] && gh release view "plugins/$id/$version" --repo atelier-ide-org/releases > /dev/null 2>&1; then
+            echo "$id $version is already released."
+            exit 0
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: find
+    if: needs.find.outputs.version != ''
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc }
+          - { runner: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { runner: macos-latest, target: aarch64-apple-darwin }
+          - { runner: macos-latest, target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libssl-dev libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: atelier-cli
+        run: cargo install --git https://github.com/atelier-ide-org/api --tag "$ATELIER_CLI" atelier-cli --locked
+      - name: Build
+        run: atelier-cli plugin compile --target ${{ matrix.target }} --out dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.find.outputs.id }}-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [find, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: parts
+      # One file for every system (the libraries of all the builds), and the manifest alone for
+      # the list of the IDE.
+      - name: Package
+        env:
+          ID: ${{ needs.find.outputs.id }}
+        run: |
+          mkdir -p stage dist
+          for part in parts/*/*.atelier-plugin; do unzip -o -q "$part" -d stage; done
+          (cd stage && zip -r "../dist/$ID.atelier-plugin" .)
+          cp stage/plugin.json dist/plugin.json
+          unzip -l "dist/$ID.atelier-plugin"
+          (cd dist && sha256sum "$ID.atelier-plugin" plugin.json > "$ID-SHA256SUMS" && cat "$ID-SHA256SUMS")
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.ATELIER_RELEASES }}
+          ID: ${{ needs.find.outputs.id }}
+          VERSION: ${{ needs.find.outputs.version }}
+        run: |
+          tag="plugins/$ID/$VERSION"
+          name="$(jq -r .name dist/plugin.json)"
+          description="$(jq -r .description dist/plugin.json)"
+          abi="$(jq -r .abi dist/plugin.json)"
+          files="$(jq -r '.extensions | map("." + .) | join(", ")' dist/plugin.json)"
+          cd dist
+          if gh release view "$tag" --repo atelier-ide-org/releases > /dev/null 2>&1; then
+            gh release upload "$tag" ./* --clobber --repo atelier-ide-org/releases
+            exit 0
+          fi
+          {
+            echo "$description"
+            echo
+            [ -n "$files" ] && echo "Files: $files" && echo
+            echo "Install it from Atelier (0.3 or later): open **Plugins**, then **Marketplace**. Or download \`$ID.atelier-plugin\` and, in **Plugins**, click **Install a plugin from a file** (the + button). It is installed once, for every project."
+            echo
+            echo "Plugin interface v$abi: it loads in every version of Atelier that reads it."
+          } > ../notes.md
+          gh release create "$tag" ./* --repo atelier-ide-org/releases --latest=false \
+            --title "$name ${VERSION#v}" --notes-file ../notes.md

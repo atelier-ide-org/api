@@ -1,0 +1,6 @@
+{
+  "{{id}}.clicks": "Clicked {count} times",
+  "{{id}}.hello": "Hello from {{name}}",
+  "{{id}}.open": "{{name}}: open the window",
+  "{{id}}.title": "{{name}}"
+}

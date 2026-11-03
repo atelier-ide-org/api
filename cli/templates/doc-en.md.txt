@@ -1,0 +1,10 @@
+---
+name: {{name}}
+category: tools
+summary: What {{name}} does, in one sentence.
+tags: []
+---
+
+# {{name}}
+
+What the plugin does, and how to use it.

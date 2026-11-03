@@ -1,0 +1,77 @@
+//! {{name}}, a native plugin of Atelier.
+//!
+//! It brings a tool window, a command, and a view of the files of the extensions of
+//! `plugin.json` (none yet: add them there, with their icon in `extensions/`, and to `info`).
+
+#[macro_use]
+mod i18n;
+
+use atelier_plugin_api::{Host, Plugin, Surface, egui, protocol, ui};
+
+/// The identifier of the tool window.
+const TOOL_WINDOW: &str = "{{id}}.window";
+
+#[derive(Default)]
+pub struct {{type}} {
+    clicks: u32,
+}
+
+atelier_plugin_api::export_plugin!({{type}}::default);
+
+impl Plugin for {{type}} {
+    fn info(&mut self, language: &str) -> protocol::Info {
+        i18n::set_language(language);
+        protocol::Info {
+            tool_windows: vec![protocol::ToolWindow {
+                id: TOOL_WINDOW.into(),
+                title: tr!("{{id}}.title").into(),
+                // An icon of the IDE, or one of `icons` below.
+                icon: "settings".into(),
+                dock: protocol::Dock::Right,
+            }],
+            commands: vec![protocol::Command {
+                id: "{{id}}.open".into(),
+                label: tr!("{{id}}.open").into(),
+            }],
+            // The files the plugin shows in an editor tab: the same extensions as plugin.json.
+            file_types: Vec::new(),
+            ..Default::default()
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, surface: Surface<'_>, host: &Host) {
+        i18n::set_language(&ui::language(ui.ctx()));
+        match surface {
+            Surface::ToolWindow(TOOL_WINDOW) => {
+                ui::section(ui, tr!("{{id}}.title"));
+                ui.label(trf!("{{id}}.clicks", count = self.clicks));
+                if ui::primary_button(ui, tr!("{{id}}.hello")).clicked() {
+                    self.clicks += 1;
+                    host.notify(tr!("{{id}}.hello"));
+                }
+            }
+            Surface::Preview(path) => {
+                ui.label(path.display().to_string());
+            }
+            Surface::ToolWindow(_) => {}
+        }
+    }
+
+    fn run_command(&mut self, id: &str, host: &Host) {
+        if id == "{{id}}.open" {
+            host.show_tool_window(TOOL_WINDOW);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_brings_its_tool_window_and_its_command() {
+        let info = {{type}}::default().info("en_US");
+        assert_eq!(info.tool_windows[0].id, TOOL_WINDOW);
+        assert_eq!(info.commands[0].id, "{{id}}.open");
+    }
+}

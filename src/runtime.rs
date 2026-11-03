@@ -33,7 +33,7 @@ pub enum Surface<'a> {
 
 /// A native plugin. Every method has a default: a plugin implements what it uses.
 #[allow(unused_variables)]
-pub trait Plugin: Send + 'static {
+pub trait Plugin: 'static {
     /// What the plugin brings: tool windows, commands, the files it shows, with their texts
     /// in `language` (`en_US`, `fr_FR`).
     fn info(&mut self, language: &str) -> protocol::Info {
@@ -45,6 +45,10 @@ pub trait Plugin: Send + 'static {
     fn run_command(&mut self, id: &str, host: &Host) {}
     /// The last tab of `path` closed: what the plugin kept for it goes.
     fn file_closed(&mut self, path: &Path) {}
+    /// Every frame of the IDE, before it draws, even when no surface of the plugin is shown:
+    /// background work, and what to stop when its files are no longer shown (a surface not
+    /// drawn between two updates is hidden).
+    fn update(&mut self, update: &protocol::Update, host: &Host) {}
 }
 
 /// What a plugin may ask the IDE, from any thread.
@@ -660,6 +664,11 @@ impl Instance {
                 let request: protocol::RunCommand =
                     serde_json::from_slice(input).unwrap_or_default();
                 self.plugin.run_command(&request.id, &self.host);
+                Vec::new()
+            }
+            protocol::UPDATE => {
+                let update: protocol::Update = serde_json::from_slice(input).unwrap_or_default();
+                self.plugin.update(&update, &self.host);
                 Vec::new()
             }
             protocol::FILE_CLOSED => {

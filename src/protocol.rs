@@ -5,7 +5,8 @@
 //! Methods of the plugin ([`crate::abi::PluginApi::call`]):
 //! - [`INFO`]: input [`InfoRequest`], output [`Info`];
 //! - [`RUN_COMMAND`]: input [`RunCommand`];
-//! - [`FILE_CLOSED`]: input [`PathMessage`]: the last tab of a file closed.
+//! - [`FILE_CLOSED`]: input [`PathMessage`]: the last tab of a file closed;
+//! - [`UPDATE`]: input [`Update`]: every frame of the IDE, before it draws.
 //!
 //! Methods of the IDE ([`crate::abi::HostApi::call`]):
 //! - [`NOTIFY`]: input [`Notify`];
@@ -23,6 +24,7 @@ use std::path::PathBuf;
 pub const INFO: &str = "info";
 pub const RUN_COMMAND: &str = "run_command";
 pub const FILE_CLOSED: &str = "file_closed";
+pub const UPDATE: &str = "update";
 
 pub const NOTIFY: &str = "notify";
 pub const OPEN_FILE: &str = "open_file";
@@ -112,6 +114,14 @@ pub struct Icon {
     pub svg: String,
     /// For dark themes, when it differs.
     pub svg_dark: Option<String>,
+}
+
+/// What the IDE tells a plugin every frame.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Update {
+    /// The files of the tabs of the editor.
+    pub open_files: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
