@@ -1,17 +1,27 @@
 [package]
 name = "atelier-plugin-api"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 description = "The interface between Atelier and its native plugins"
 repository = "https://github.com/atelier-ide-org/api"
 publish = false
 
+[features]
+default = ["egui"]
+# The messages of the interface (`protocol`), as the IDE reads them.
+serde = ["dep:serde", "dep:serde_json"]
+# A plugin that draws with egui (`runtime`, `ui`): its own egui, of any version.
+egui = ["serde", "dep:egui"]
+# OpenGL in a plugin (`gl`).
+glow = ["egui", "dep:glow"]
+
+# The interface itself (`abi`) depends on nothing: the IDE and a plugin share only C types.
 [dependencies]
-# The same eframe as the IDE: a plugin draws with the IDE's egui, so both must be built from
-# the same crates, with the same features (`fingerprint` checks it).
-#
-# Nothing else: the identity of this crate (and so the fingerprint) includes that of its
-# dependencies, and a plugin may enable features of any crate it uses. With eframe alone, a
-# plugin built against a release of the IDE matches the IDE built without it.
-eframe = { version = "0.33", features = ["persistence"] }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+egui = { version = "0.33", features = ["serde"], optional = true }
+glow = { version = "0.16", optional = true }
+
+# A workspace of its own: in the IDE, this repository is the submodule `api/`.
+[workspace]
