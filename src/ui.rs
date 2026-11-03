@@ -160,8 +160,10 @@ fn picture(ctx: &egui::Context, key: &str, svg: Option<&str>, size: Vec2) -> Opt
             };
             let (width, height, pixels) = protocol::decode_image(&bytes)?;
             let pixels = pixels
-                .chunks_exact(4)
-                .map(|p| Color32::from_rgba_premultiplied(p[0], p[1], p[2], p[3]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&[r, g, b, a]| Color32::from_rgba_premultiplied(r, g, b, a))
                 .collect();
             let image = egui::ColorImage::new([width as usize, height as usize], pixels);
             Some(ctx.load_texture(format!("atelier://{key}"), image, TextureOptions::LINEAR))
