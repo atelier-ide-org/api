@@ -27,3 +27,6 @@ jobs:
       - run: cargo clippy --all-targets --no-default-features --features serde
       - run: cargo clippy --all-targets --features glow
       - run: cargo test --features glow
+      # The command line of the plugins.
+      - run: cargo clippy -p atelier-cli --all-targets --locked
+      - run: cargo test -p atelier-cli --locked
