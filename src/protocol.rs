@@ -195,6 +195,33 @@ pub struct Diagnostic {
     pub source: String,
     /// Its rule, when the tool names one (`no-unused-vars`).
     pub code: Option<String>,
+    /// The ways to fix it, offered on the problem (Alt+Enter, the bulb of the gutter).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fixes: Vec<Fix>,
+}
+
+/// A fix of a [`Diagnostic`]: changes to its document, placed as the diagnostic is (in the text
+/// it was found in), which do not overlap.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Fix {
+    pub title: String,
+    pub edits: Vec<Edit>,
+    /// The fix of the tool itself (`eslint --fix`, a safe fix of Ruff), not a suggestion: the
+    /// IDE also offers to apply those of a tool to the whole document at once.
+    pub preferred: bool,
+}
+
+/// The text from (`line`, `column`) to (`end_line`, `end_column`) replaced by `text`: an
+/// insertion when both are the same place.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Edit {
+    pub line: u32,
+    pub column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub text: String,
 }
 
 /// The problems of a document ([`DIAGNOSTICS`]).
@@ -531,6 +558,17 @@ mod tests {
                 message: "'x' is never used".into(),
                 source: "eslint".into(),
                 code: Some("no-unused-vars".into()),
+                fixes: vec![Fix {
+                    title: "Remove 'x'".into(),
+                    edits: vec![Edit {
+                        line: 1,
+                        column: 0,
+                        end_line: 2,
+                        end_column: 0,
+                        text: String::new(),
+                    }],
+                    preferred: false,
+                }],
             }],
         };
         let json = serde_json::to_string(&diagnostics).unwrap();
