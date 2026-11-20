@@ -49,7 +49,21 @@ pub trait Plugin: 'static {
     /// background work, and what to stop when its files are no longer shown (a surface not
     /// drawn between two updates is hidden).
     fn update(&mut self, update: &protocol::Update, host: &Host) {}
+    /// The text of an open document that [`protocol::Info::lints`] covers, when it is opened and
+    /// after each change. The problems found go back with [`Host::publish_diagnostics`], from
+    /// any thread: return at once, and do the work in the background.
+    fn document(&mut self, document: &protocol::Document, host: &Host) {}
+    /// Reformat Code on a file that [`protocol::Info::formats`] covers: the work that gives the
+    /// new text, or why it could not be formatted. It runs on a thread of its own, so it may wait
+    /// for a formatter; the plugin is not locked meanwhile. None leaves the document to the
+    /// IDE's own formatter.
+    fn format(&mut self, request: &protocol::FormatRequest, host: &Host) -> Option<FormatJob> {
+        None
+    }
 }
+
+/// The work of [`Plugin::format`], done on a thread of its own.
+pub type FormatJob = Box<dyn FnOnce() -> protocol::Formatted + Send>;
 
 /// What a plugin may ask the IDE, from any thread.
 #[derive(Clone)]
@@ -136,6 +150,24 @@ impl Host {
     /// The folder where the IDE keeps its settings.
     pub fn data_dir(&self) -> PathBuf {
         self.project().data_dir
+    }
+
+    /// The problems found in the document `path` at `version` ([`protocol::Document::version`]),
+    /// in place of the ones published before for it. An empty list clears them.
+    pub fn publish_diagnostics(
+        &self,
+        path: impl Into<PathBuf>,
+        version: u64,
+        items: Vec<protocol::Diagnostic>,
+    ) {
+        self.call_json_bytes(
+            protocol::DIAGNOSTICS,
+            &protocol::Diagnostics {
+                path: path.into(),
+                version,
+                items,
+            },
+        );
     }
 
     /// Asks for a new frame, e.g. when a background task is done.
@@ -670,6 +702,30 @@ impl Instance {
                 let update: protocol::Update = serde_json::from_slice(input).unwrap_or_default();
                 self.plugin.update(&update, &self.host);
                 Vec::new()
+            }
+            protocol::DOCUMENT => {
+                let document: protocol::Document =
+                    serde_json::from_slice(input).unwrap_or_default();
+                self.plugin.document(&document, &self.host);
+                Vec::new()
+            }
+            protocol::FORMAT => {
+                let request: protocol::FormatRequest =
+                    serde_json::from_slice(input).unwrap_or_default();
+                let Some(job) = self.plugin.format(&request, &self.host) else {
+                    return Vec::new();
+                };
+                let (host, id) = (self.host.clone(), request.id);
+                std::thread::spawn(move || {
+                    let formatted = catch_unwind(AssertUnwindSafe(job)).unwrap_or_else(|_| {
+                        protocol::Formatted::Error("the formatter of the plugin failed".into())
+                    });
+                    host.call_json_bytes(
+                        protocol::FORMATTED,
+                        &protocol::FormatAnswer { id, formatted },
+                    );
+                });
+                b"true".to_vec()
             }
             protocol::FILE_CLOSED => {
                 let request: protocol::PathMessage =

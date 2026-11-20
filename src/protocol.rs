@@ -6,7 +6,13 @@
 //! - [`INFO`]: input [`InfoRequest`], output [`Info`];
 //! - [`RUN_COMMAND`]: input [`RunCommand`];
 //! - [`FILE_CLOSED`]: input [`PathMessage`]: the last tab of a file closed;
-//! - [`UPDATE`]: input [`Update`]: every frame of the IDE, before it draws.
+//! - [`UPDATE`]: input [`Update`]: every frame of the IDE, before it draws;
+//! - [`DOCUMENT`]: input [`Document`]: the text of an open document, when it is opened and after
+//!   each change, for a plugin whose [`Info::lints`] covers it. The plugin answers later, from
+//!   any thread, with [`DIAGNOSTICS`];
+//! - [`FORMAT`]: input [`FormatRequest`], for a file its [`Info::formats`] covers (Reformat
+//!   Code). Output `true` when the plugin formats it, and answers later, from any thread, with
+//!   [`FORMATTED`]; nothing when it leaves the document to the IDE's own formatter.
 //!
 //! Methods of the IDE ([`crate::abi::HostApi::call`]):
 //! - [`NOTIFY`]: input [`Notify`];
@@ -16,7 +22,10 @@
 //! - [`STYLE`]: output [`Style`];
 //! - [`FONTS`]: output the fonts of the IDE ([`encode_fonts`]);
 //! - [`ICON`]: input [`IconRequest`], output a picture ([`encode_image`]);
-//! - [`SVG`]: input [`SvgRequest`], output a picture ([`encode_image`]).
+//! - [`SVG`]: input [`SvgRequest`], output a picture ([`encode_image`]);
+//! - [`DIAGNOSTICS`]: input [`Diagnostics`]: the problems found in a document, in place of the
+//!   ones given before for it (an empty list clears them);
+//! - [`FORMATTED`]: input [`FormatAnswer`]: the answer to a [`FORMAT`] the plugin took.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -25,6 +34,8 @@ pub const INFO: &str = "info";
 pub const RUN_COMMAND: &str = "run_command";
 pub const FILE_CLOSED: &str = "file_closed";
 pub const UPDATE: &str = "update";
+pub const DOCUMENT: &str = "document";
+pub const FORMAT: &str = "format";
 
 pub const NOTIFY: &str = "notify";
 pub const OPEN_FILE: &str = "open_file";
@@ -34,6 +45,8 @@ pub const STYLE: &str = "style";
 pub const FONTS: &str = "fonts";
 pub const ICON: &str = "icon";
 pub const SVG: &str = "svg";
+pub const DIAGNOSTICS: &str = "diagnostics";
+pub const FORMATTED: &str = "formatted";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
@@ -53,6 +66,25 @@ pub struct Info {
     pub file_types: Vec<FileType>,
     /// The icons the other fields name, by `name`.
     pub icons: Vec<Icon>,
+    /// The files whose text the plugin reads to find problems in them ([`DOCUMENT`]): lowercase
+    /// extensions without the dot (`ts`), or whole file names (`dockerfile`). `*` is every file.
+    pub lints: Vec<String>,
+    /// The files the plugin may format ([`FORMAT`]), named as in [`Info::lints`].
+    pub formats: Vec<String>,
+}
+
+impl Info {
+    /// Whether `names` ([`Info::lints`] or [`Info::formats`]) covers the file `path`.
+    pub fn covers(names: &[String], path: &std::path::Path) -> bool {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            return false;
+        };
+        let name = name.to_ascii_lowercase();
+        let extension = name.rsplit_once('.').map(|(_, e)| e);
+        names
+            .iter()
+            .any(|n| n == "*" || *n == name || Some(n.as_str()) == extension)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,6 +154,110 @@ pub struct Icon {
 pub struct Update {
     /// The files of the tabs of the editor.
     pub open_files: Vec<PathBuf>,
+}
+
+/// An open document: its text, which may differ from the file until it is saved.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Document {
+    pub path: PathBuf,
+    /// The language the editor gives it (`typescript`, `python`…), empty when it has none.
+    pub language: String,
+    pub text: String,
+    /// Grows with each change of the document; [`Diagnostics::version`] tells which one the
+    /// problems were found in.
+    pub version: u64,
+}
+
+/// How bad a [`Diagnostic`] is.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    #[default]
+    Error,
+    Warning,
+    Info,
+    Hint,
+}
+
+/// A problem in a document. Lines are 0-based; columns are 0-based and count UTF-16 code units,
+/// as the Language Server Protocol does.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Diagnostic {
+    pub line: u32,
+    pub column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub severity: Severity,
+    pub message: String,
+    /// The tool that found it (`eslint`, `ruff`…).
+    pub source: String,
+    /// Its rule, when the tool names one (`no-unused-vars`).
+    pub code: Option<String>,
+    /// The ways to fix it, offered on the problem (Alt+Enter, the bulb of the gutter).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fixes: Vec<Fix>,
+}
+
+/// A fix of a [`Diagnostic`]: changes to its document, placed as the diagnostic is (in the text
+/// it was found in), which do not overlap.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Fix {
+    pub title: String,
+    pub edits: Vec<Edit>,
+    /// The fix of the tool itself (`eslint --fix`, a safe fix of Ruff), not a suggestion: the
+    /// IDE also offers to apply those of a tool to the whole document at once.
+    pub preferred: bool,
+}
+
+/// The text from (`line`, `column`) to (`end_line`, `end_column`) replaced by `text`: an
+/// insertion when both are the same place.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Edit {
+    pub line: u32,
+    pub column: u32,
+    pub end_line: u32,
+    pub end_column: u32,
+    pub text: String,
+}
+
+/// The problems of a document ([`DIAGNOSTICS`]).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Diagnostics {
+    pub path: PathBuf,
+    /// The [`Document::version`] they were found in.
+    pub version: u64,
+    pub items: Vec<Diagnostic>,
+}
+
+/// A document to format ([`FORMAT`]).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct FormatRequest {
+    /// Given back in [`FormatAnswer::id`].
+    pub id: u64,
+    pub path: PathBuf,
+    pub language: String,
+    pub text: String,
+}
+
+/// A formatted document: its new text, or why it could not be formatted.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum Formatted {
+    Text(String),
+    Error(String),
+}
+
+/// The answer to a [`FORMAT`] ([`FORMATTED`]).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct FormatAnswer {
+    /// The [`FormatRequest::id`].
+    pub id: u64,
+    pub formatted: Formatted,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -392,5 +528,63 @@ mod tests {
         .unwrap();
         assert_eq!(info.tool_windows[0].dock, Dock::Left);
         assert!(info.commands.is_empty());
+    }
+
+    #[test]
+    fn lints_and_formats_cover_extensions_names_or_everything() {
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let path = std::path::Path::new;
+        assert!(Info::covers(&names(&["ts"]), path("src/App.TS")));
+        assert!(Info::covers(
+            &names(&["dockerfile"]),
+            path("ops/Dockerfile")
+        ));
+        assert!(Info::covers(&names(&["*"]), path("README")));
+        assert!(!Info::covers(&names(&["ts"]), path("src/a.js")));
+        assert!(!Info::covers(&names(&[]), path("a.ts")));
+    }
+
+    #[test]
+    fn diagnostics_and_formatting_go_through() {
+        let diagnostics = Diagnostics {
+            path: "a.ts".into(),
+            version: 3,
+            items: vec![Diagnostic {
+                line: 1,
+                column: 4,
+                end_line: 1,
+                end_column: 9,
+                severity: Severity::Warning,
+                message: "'x' is never used".into(),
+                source: "eslint".into(),
+                code: Some("no-unused-vars".into()),
+                fixes: vec![Fix {
+                    title: "Remove 'x'".into(),
+                    edits: vec![Edit {
+                        line: 1,
+                        column: 0,
+                        end_line: 2,
+                        end_column: 0,
+                        text: String::new(),
+                    }],
+                    preferred: false,
+                }],
+            }],
+        };
+        let json = serde_json::to_string(&diagnostics).unwrap();
+        assert!(json.contains(r#""severity":"warning""#));
+        assert_eq!(
+            serde_json::from_str::<Diagnostics>(&json).unwrap(),
+            diagnostics
+        );
+        let answer = FormatAnswer {
+            id: 7,
+            formatted: Formatted::Text("let a = 1;\n".into()),
+        };
+        let json = serde_json::to_string(&answer).unwrap();
+        assert_eq!(serde_json::from_str::<FormatAnswer>(&json).unwrap(), answer);
+        // Older IDEs and plugins leave the new fields out.
+        let info: Info = serde_json::from_str("{}").unwrap();
+        assert!(info.lints.is_empty() && info.formats.is_empty());
     }
 }

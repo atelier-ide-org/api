@@ -27,7 +27,7 @@ pub use egui;
 #[cfg(feature = "glow")]
 pub use glow;
 #[cfg(feature = "egui")]
-pub use runtime::{Host, Plugin, Surface};
+pub use runtime::{FormatJob, Host, Plugin, Surface};
 #[cfg(feature = "serde")]
 pub use serde_json;
 

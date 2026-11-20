@@ -70,7 +70,9 @@ A plugin draws with **its own egui** (feature `egui`, on by default), of any ver
 
 The look follows the IDE: it sends its egui style (as JSON), its colors (`ui::theme`) and its fonts, and `ui` has its widgets (icon buttons, menus, rows, dialogs) with the icons of the IDE, which the IDE draws for the plugin (`ui::icon`); a plugin adds its own with `ui::register_icon`. With the feature `glow`, a surface may paint with OpenGL (`gl::paint_callback`): the IDE calls the plugin back with its context current, and the plugin loads its own `glow` from it.
 
-Anything else goes through `call`, by name, with JSON (`protocol`): what the plugin brings (`info`: tool windows, commands, file types, icons), the commands the user runs, the files closed; and from the plugin to the IDE (`Host`): notifications, opening a file or a tool window, the project, the folder of the settings. A side that does not know a method answers nothing, so both add methods without a new version.
+Anything else goes through `call`, by name, with JSON (`protocol`): what the plugin brings (`info`: tool windows, commands, file types, icons, the files it lints and formats), the commands the user runs, the files closed, the text of the documents it lints (`document`), Reformat Code (`format`); and from the plugin to the IDE (`Host`): notifications, opening a file or a tool window, the project, the folder of the settings, the problems found in a document (`publish_diagnostics`) and the formatted text. A side that does not know a method answers nothing, so both add methods without a new version.
+
+A linter answers from its own threads: `Plugin::document` returns at once, and the problems go back with `Host::publish_diagnostics` (0-based lines, UTF-16 columns), each with its fixes (`Diagnostic::fixes`), which the IDE offers with Alt+Enter and the bulb of the gutter. `Plugin::format` returns the work that formats (`FormatJob`), which runs on a thread of its own, or None to leave the file to the IDE's formatter.
 
 ## Rules of the interface
 
